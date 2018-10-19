@@ -8,11 +8,6 @@
 
 namespace effil {
 
-// Lua this thread API
-std::string threadId();
-void yield();
-void sleep(const sol::stack_object& duration, const sol::stack_object& metric);
-
 class ThreadHandle : public GCData {
 public:
     enum class Status {
@@ -75,6 +70,17 @@ public:
 
     StoredArray& result() { return result_; }
 
+    void setNotifier(IInterruptable* notifier) {
+        std::unique_lock<std::mutex> lock(currNotifierLock_);
+        currNotifier_ = notifier;
+    }
+
+    void interrupt() {
+        std::unique_lock<std::mutex> lock(currNotifierLock_);
+        if (currNotifier_)
+            currNotifier_->interrupt();
+    }
+
 private:
     Status status_;
     Command command_;
@@ -83,6 +89,9 @@ private:
     Notifier completionNotifier_;
     std::mutex stateLock_;
     StoredArray result_;
+
+    std::mutex currNotifierLock_;
+    IInterruptable* currNotifier_;
 
     std::unique_ptr<sol::state> lua_;
 };

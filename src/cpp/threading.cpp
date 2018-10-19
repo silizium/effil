@@ -86,9 +86,61 @@ void luaHook(lua_State*, lua_Debug*) {
 
 } // namespace
 
+namespace this_thread {
+
+void setNotifier(IInterruptable* notifier) {
+    if (thisThreadHandle) {
+        thisThreadHandle->setNotifier(notifier);
+    }
+}
+
+void interruptionPoint() {
+    if (thisThreadHandle && thisThreadHandle->command() == Command::Cancel)
+    {
+        throw LuaHookStopException();
+    }
+}
+
+std::string threadId() {
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    return ss.str();
+}
+
+void yield() {
+    luaHook(nullptr, nullptr);
+    std::this_thread::yield();
+}
+
+void sleep(const sol::stack_object& duration, const sol::stack_object& metric) {
+    if (duration.valid()) {
+        REQUIRE(duration.get_type() == sol::type::number)
+                << "bad argument #1 to 'effil.sleep' (number expected, got "
+                << luaTypename(duration) << ")";
+
+        if (metric.valid())
+        {
+            REQUIRE(metric.get_type() == sol::type::string)
+                    << "bad argument #2 to 'effil.sleep' (string expected, got "
+                    << luaTypename(metric) << ")";
+        }
+        try {
+            Notifier notifier;
+            notifier.waitFor(fromLuaTime(duration.as<int>(),
+                                         metric.as<sol::optional<std::string>>()));
+        } RETHROW_WITH_PREFIX("effil.sleep");
+    }
+    else {
+        yield();
+    }
+}
+
+} // namespace this_thread
+
 ThreadHandle::ThreadHandle()
         : status_(Status::Running)
         , command_(Command::Run)
+        , currNotifier_(nullptr)
         , lua_(std::make_unique<sol::state>(luaErrorHandlerPtr)) {
     luaL_openlibs(*lua_);
 }
@@ -150,32 +202,6 @@ void Thread::runThread(Thread thread,
                 { createStoredObject("failed"),
                   createStoredObject(err.what()) });
         thread.ctx_->changeStatus(Status::Failed);
-    }
-}
-
-std::string threadId() {
-    std::stringstream ss;
-    ss << std::this_thread::get_id();
-    return ss.str();
-}
-
-void yield() {
-    if (thisThreadHandle)
-        luaHook(nullptr, nullptr);
-    std::this_thread::yield();
-}
-
-void sleep(const sol::stack_object& duration, const sol::stack_object& metric) {
-    if (duration.valid()) {
-        REQUIRE(duration.get_type() == sol::type::number) << "bad argument #1 to 'effil.sleep' (number expected, got " << luaTypename(duration) << ")";
-        if (metric.valid())
-            REQUIRE(metric.get_type() == sol::type::string) << "bad argument #2 to 'effil.sleep' (string expected, got " << luaTypename(metric) << ")";
-        try {
-            std::this_thread::sleep_for(fromLuaTime(duration.as<int>(), metric.valid() ? metric.as<std::string>() : sol::optional<std::string>()));
-        } RETHROW_WITH_PREFIX("effil.sleep");
-    }
-    else {
-        yield();
     }
 }
 
@@ -266,6 +292,7 @@ bool Thread::cancel(const sol::this_state&,
                     const sol::optional<int>& duration,
                     const sol::optional<std::string>& period) {
     ctx_->putCommand(Command::Cancel);
+    ctx_->interrupt();
     Status status = ctx_->waitForStatusChange(toOptionalTime(duration, period));
     return isFinishStatus(status);
 }
