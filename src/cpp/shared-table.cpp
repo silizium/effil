@@ -58,11 +58,14 @@ void SharedTable::set(StoredObject&& key, StoredObject&& value) {
     key.releaseStrongReference();
     value.releaseStrongReference();
 
-    const auto iter = ctx_->entries.find(key);
-    if (iter != ctx_->entries.end())
-        ctx_->entries.erase(iter);
-
-    ctx_->entries.emplace(std::move(key), std::move(value));
+    auto iter = ctx_->entries.find(key);
+    if (iter != ctx_->entries.end()) {
+        const auto hint = ctx_->entries.erase(iter);
+        ctx_->entries.emplace_hint(hint, std::move(key), std::move(value));
+    }
+    else {
+        ctx_->entries.emplace(std::move(key), std::move(value));
+    }
 }
 
 sol::object SharedTable::get(const StoredObject& key, sol::this_state state) const {
