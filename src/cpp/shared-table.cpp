@@ -58,7 +58,7 @@ void SharedTable::set(StoredObject&& key, StoredObject&& value) {
     key.releaseStrongReference();
     value.releaseStrongReference();
 
-    auto iter = ctx_->entries.find(key);
+    const auto iter = ctx_->entries.find(key);
     if (iter != ctx_->entries.end()) {
         const auto hint = ctx_->entries.erase(iter);
         ctx_->entries.emplace_hint(hint, std::move(key), std::move(value));
@@ -225,7 +225,7 @@ sol::object SharedTable::luaLength(sol::this_state state) {
         do {
             ++len;
             ++iter;
-        } while ((iter != ctx_->entries.end()) && (value = BaseHolder::toIndexType(iter->first)) &&
+        } while ((iter != ctx_->entries.end()) && (value = StoredObject::toIndexType(iter->first)) &&
                  (static_cast<size_t>(value.value()) == len + 1));
     }
     return sol::make_object(state, len);
@@ -234,8 +234,8 @@ sol::object SharedTable::luaLength(sol::this_state state) {
 SharedTable::PairsIterator SharedTable::getNext(const sol::object& key, sol::this_state lua) {
     SharedLock g(ctx_->lock);
     if (key) {
-        auto obj = createStoredObject(key);
-        auto upper = ctx_->entries.upper_bound(obj);
+        const auto obj = createStoredObject(key);
+        const auto upper = ctx_->entries.find(obj);
         if (upper != ctx_->entries.end())
             return PairsIterator(upper->first.unpack(lua), upper->second.unpack(lua));
     } else {

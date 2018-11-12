@@ -15,32 +15,33 @@ class Channel;
 class Thread;
 
 // Represents an interface for lua type stored at C++ code
-class BaseHolder {
+class StoredObject {
 public:
-    BaseHolder(BaseHolder&& other);
+    StoredObject(StoredObject&& other);
 
-    explicit BaseHolder(const std::string& str);
-    explicit BaseHolder(lua_Number num);
-    explicit BaseHolder(bool b);
+    explicit StoredObject(const std::string& str);
+    explicit StoredObject(lua_Number num);
+    explicit StoredObject(bool b);
 
-    BaseHolder(const SharedTable& obj);
-    BaseHolder(const Function& obj);
-    BaseHolder(const Channel& obj);
-    BaseHolder(const Thread& obj);
-    BaseHolder(sol::lightuserdata_value ud);
-    BaseHolder(sol::nil_t);
-    BaseHolder(EffilApiMarker);
-    BaseHolder();
-    ~BaseHolder();
+    StoredObject(const SharedTable& obj);
+    StoredObject(const Function& obj);
+    StoredObject(const Channel& obj);
+    StoredObject(const Thread& obj);
+    StoredObject(sol::lightuserdata_value ud);
+    StoredObject(sol::nil_t);
+    StoredObject(EffilApiMarker);
+    StoredObject();
+    ~StoredObject();
 
-    bool operator<(const BaseHolder& other) const;
+    //bool operator<(const StoredObject& other) const;
+    bool operator==(const StoredObject& other) const;
     const std::type_info& type();
     sol::object unpack(sol::this_state state) const;
     GCHandle gcHandle() const;
     void releaseStrongReference();
     void holdStrongReference();
 
-    static sol::optional<LUA_INDEX_TYPE> toIndexType(const BaseHolder&);
+    static sol::optional<LUA_INDEX_TYPE> toIndexType(const StoredObject&);
 
 protected:
     union {
@@ -65,10 +66,13 @@ protected:
         SharedThread,
     } type_;
 
-    BaseHolder(const BaseHolder&) = delete;
+    StoredObject(const StoredObject&) = delete;
+    friend struct StoredObjectHash;
 };
 
-typedef BaseHolder StoredObject;
+struct StoredObjectHash {
+    size_t operator ()(const StoredObject& obj) const;
+};
 
 StoredObject createStoredObject(bool);
 StoredObject createStoredObject(lua_Number);

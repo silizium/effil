@@ -12,7 +12,7 @@
 
 namespace effil {
 
-BaseHolder::BaseHolder(BaseHolder&& other) {
+StoredObject::StoredObject(StoredObject&& other) {
     type_ = other.type_;
     switch (type_) {
         case StoredType::Number:
@@ -43,52 +43,52 @@ BaseHolder::BaseHolder(BaseHolder&& other) {
     }
 }
 
-BaseHolder::BaseHolder(const SharedTable& obj)
+StoredObject::StoredObject(const SharedTable& obj)
     : handle_(obj.handle()), type_(StoredType::SharedTable) {
     holdStrongReference();
 }
 
-BaseHolder::BaseHolder(const Function& obj)
+StoredObject::StoredObject(const Function& obj)
     : handle_(obj.handle()), type_(StoredType::SharedFunction) {
     holdStrongReference();
 }
 
-BaseHolder::BaseHolder(const Channel& obj)
+StoredObject::StoredObject(const Channel& obj)
     : handle_(obj.handle()), type_(StoredType::SharedChannel) {
     holdStrongReference();
 }
 
-BaseHolder::BaseHolder(const Thread& obj)
+StoredObject::StoredObject(const Thread& obj)
     : handle_(obj.handle()), type_(StoredType::SharedThread) {
     holdStrongReference();
 }
 
-BaseHolder::BaseHolder(const std::string& str) : type_(StoredType::String) {
+StoredObject::StoredObject(const std::string& str) : type_(StoredType::String) {
     string_ = (char*)malloc(str.size() + 1);
     strcpy(string_, str.c_str());
 }
 
-BaseHolder::BaseHolder(lua_Number num) : number_(num), type_(StoredType::Number) {}
+StoredObject::StoredObject(lua_Number num) : number_(num), type_(StoredType::Number) {}
 
-BaseHolder::BaseHolder(bool b) : bool_(b), type_(StoredType::Boolean) {}
+StoredObject::StoredObject(bool b) : bool_(b), type_(StoredType::Boolean) {}
 
-BaseHolder::BaseHolder(sol::lightuserdata_value ud)
+StoredObject::StoredObject(sol::lightuserdata_value ud)
     : lightUData_(ud.value), type_(StoredType::LightUserData) {}
 
-BaseHolder::BaseHolder(sol::nil_t) : bool_(false), type_(StoredType::Nil) {}
+StoredObject::StoredObject(sol::nil_t) : bool_(false), type_(StoredType::Nil) {}
 
-BaseHolder::BaseHolder(EffilApiMarker) : type_(StoredType::ApiMarker) {}
+StoredObject::StoredObject(EffilApiMarker) : type_(StoredType::ApiMarker) {}
 
-BaseHolder::BaseHolder() : type_(StoredType::Nil) {}
+StoredObject::StoredObject() : type_(StoredType::Nil) {}
 
-BaseHolder::~BaseHolder() {
+StoredObject::~StoredObject() {
     if (type_ == StoredType::String)
         free(string_);
 }
 
-bool BaseHolder::operator <(const BaseHolder& other) const {
-    if (type_ == other.type_)
-    {
+/*
+bool StoredObject::operator <(const StoredObject& other) const {
+    if (type_ == other.type_) {
         switch (type_) {
             case StoredType::Number:
                 return number_ < other.number_;
@@ -108,13 +108,36 @@ bool BaseHolder::operator <(const BaseHolder& other) const {
         }
     }
     return type_ < other.type_;
+}*/
+
+bool StoredObject::operator==(const StoredObject& other) const {
+    if (type_ == other.type_) {
+        switch (type_) {
+            case StoredType::Number:
+                return number_ == other.number_;
+            case StoredType::Boolean:
+                return bool_ == other.bool_;
+            case StoredType::String:
+                return strcmp(other.string_, string_) == 0;
+            case StoredType::LightUserData:
+                return lightUData_ == other.lightUData_;
+            case StoredType::SharedTable:
+            case StoredType::SharedChannel:
+            case StoredType::SharedFunction:
+            case StoredType::SharedThread:
+                return handle_ == other.handle_;
+            default:
+                return false;
+        }
+    }
+    return false;
 }
 
-const std::type_info& BaseHolder::type() {
+const std::type_info& StoredObject::type() {
     return typeid(*this);
 }
 
-sol::object BaseHolder::unpack(sol::this_state state) const {
+sol::object StoredObject::unpack(sol::this_state state) const {
     switch (type_) {
         case StoredType::Number:
             return sol::make_object(state, number_);
@@ -144,7 +167,7 @@ sol::object BaseHolder::unpack(sol::this_state state) const {
     }
 }
 
-GCHandle BaseHolder::gcHandle() const {
+GCHandle StoredObject::gcHandle() const {
     if (type_ == StoredType::SharedThread ||
             type_ == StoredType::SharedChannel ||
             type_ == StoredType::SharedTable ||
@@ -156,11 +179,11 @@ GCHandle BaseHolder::gcHandle() const {
     }
 }
 
-void BaseHolder::releaseStrongReference() {
+void StoredObject::releaseStrongReference() {
     strongRef_.reset();
 }
 
-void BaseHolder::holdStrongReference() {
+void StoredObject::holdStrongReference() {
     if (type_ == StoredType::SharedThread ||
             type_ == StoredType::SharedChannel ||
             type_ == StoredType::SharedTable ||
@@ -169,39 +192,65 @@ void BaseHolder::holdStrongReference() {
     }
 }
 
+template<typename T>
+size_t bindHashes(size_t seed, const T& obj) {
+    std::hash<T> hasher;
+    return seed ^ (hasher(obj) + 0x9e3779b9 + (seed<<6) + (seed>>2));
+}
+
+size_t StoredObjectHash::operator ()(const StoredObject& obj) const {
+    const auto seed = std::hash<size_t>()((size_t)obj.type_);
+
+    switch (obj.type_) {
+        case StoredObject::StoredType::Number:
+            return bindHashes(seed, obj.number_);
+        case StoredObject::StoredType::Boolean:
+            return bindHashes(seed, obj.bool_);
+        case StoredObject::StoredType::String:
+            return bindHashes<std::string>(seed, obj.string_);
+        case StoredObject::StoredType::LightUserData:
+            return bindHashes(seed, obj.lightUData_);
+        case StoredObject::StoredType::SharedTable:
+        case StoredObject::StoredType::SharedChannel:
+        case StoredObject::StoredType::SharedFunction:
+        case StoredObject::StoredType::SharedThread:
+            return bindHashes(seed, obj.handle_);
+        default:
+            return 0;
+    }
+    assert(false);
+    return seed;
+}
+
 namespace {
 
 // This class is used as a storage for visited sol::tables
 // TODO: try to use map or unordered map instead of linear search in vector
 // TODO: Trick is - sol::object has only operator==:/
-typedef std::vector<std::pair<sol::object, GCHandle>> SolTableToShared;
+typedef std::unordered_map<int, GCHandle> SolTableToShared;
 
-void dumpTable(SharedTable* target, sol::table luaTable, SolTableToShared& visited);
+void dumpTable(SharedTable* target, const sol::table& luaTable, SolTableToShared& visited);
 
-StoredObject makeStoredObject(sol::object luaObject, SolTableToShared& visited) {
+StoredObject makeStoredObject(const sol::object& luaObject, SolTableToShared& visited) {
     if (luaObject.get_type() == sol::type::table) {
-        sol::table luaTable = luaObject;
-        auto comparator = [&luaTable](const std::pair<sol::table, GCHandle>& element) {
-            return element.first == luaTable;
-        };
-        auto st = std::find_if(visited.begin(), visited.end(), comparator);
-
+        const sol::table luaTable = luaObject;
+        auto st = visited.find(luaTable.registry_index());;
         if (st == std::end(visited)) {
             SharedTable table = GC::instance().create<SharedTable>();
-            visited.emplace_back(std::make_pair(luaTable, table.handle()));
+            visited.emplace(luaTable.registry_index(), table.handle());
             dumpTable(&table, luaTable, visited);
-            return std::move(BaseHolder(table));
+            return std::move(StoredObject(table));
         } else {
             const auto tbl = GC::instance().get<SharedTable>(st->second);
-            return std::move(BaseHolder(tbl));
+            return std::move(StoredObject(tbl));
         }
     } else {
         return createStoredObject(luaObject);
     }
 }
 
-void dumpTable(SharedTable* target, sol::table luaTable, SolTableToShared& visited) {
-    for (auto& row : luaTable) {
+void dumpTable(SharedTable* target, const sol::table& luaTable, SolTableToShared& visited) {
+    for (const auto& row : luaTable) {
         target->set(makeStoredObject(row.first, visited), makeStoredObject(row.second, visited));
     }
 }
@@ -210,9 +259,9 @@ template <typename SolObject>
 StoredObject fromSolObject(const SolObject& luaObject) {
     switch (luaObject.get_type()) {
         case sol::type::nil:
-            return BaseHolder(sol::nil);
+            return StoredObject(sol::nil);
         case sol::type::boolean:
-            return BaseHolder(luaObject.template as<bool>());
+            return StoredObject(luaObject.template as<bool>());
         case sol::type::number:
         {
 #if LUA_VERSION_NUM == 503
@@ -223,41 +272,41 @@ StoredObject fromSolObject(const SolObject& luaObject) {
                 return std::move(BaseHolder(luaObject.as<lua_Integer>()));
             else
 #endif // Lua5.3
-                return BaseHolder(luaObject.template as<lua_Number>());
+                return StoredObject(luaObject.template as<lua_Number>());
         }
         case sol::type::string:
-            return BaseHolder(luaObject.template as<std::string>());
+            return StoredObject(luaObject.template as<std::string>());
         case sol::type::lightuserdata:
-            return BaseHolder(sol::lightuserdata_value(luaObject.template as<void*>()));
+            return StoredObject(sol::lightuserdata_value(luaObject.template as<void*>()));
         case sol::type::userdata:
             if (luaObject.template is<SharedTable>())
-                return BaseHolder(luaObject.template as<SharedTable>());
+                return StoredObject(luaObject.template as<SharedTable>());
             else if (luaObject.template is<Channel>())
-                return BaseHolder(luaObject.template as<Channel>());
+                return StoredObject(luaObject.template as<Channel>());
             else if (luaObject.template is<Function>())
-                return BaseHolder(luaObject.template as<Function>());
+                return StoredObject(luaObject.template as<Function>());
             else if (luaObject.template is<Thread>())
-                return BaseHolder(luaObject.template as<Thread>());
+                return StoredObject(luaObject.template as<Thread>());
             else if (luaObject.template is<EffilApiMarker>())
-                return BaseHolder(EffilApiMarker());
+                return StoredObject(EffilApiMarker());
             else
                 throw Exception() << "Unable to store userdata object";
         case sol::type::function: {
             Function func = GC::instance().create<Function>(luaObject);
-            return BaseHolder(func);
+            return StoredObject(func);
         }
         case sol::type::table: {
             sol::table luaTable = luaObject;
             // Tables pool is used to store tables.
             // Right now not defiantly clear how ownership between states works.
             SharedTable table = GC::instance().create<SharedTable>();
-            SolTableToShared visited{{luaTable, table.handle()}};
+            SolTableToShared visited{{luaTable.registry_index(), table.handle()}};
 
             // Let's dump table and all subtables
             // SolTableToShared is used to prevent from infinity recursion
             // in recursive tables
             dumpTable(&table, luaTable, visited);
-            return std::move(BaseHolder(table));
+            return std::move(StoredObject(table));
         }
         default:
             throw Exception() << "unable to store object of " << luaTypename(luaObject) << " type";
@@ -266,18 +315,18 @@ StoredObject fromSolObject(const SolObject& luaObject) {
 
 } // namespace
 
-StoredObject createStoredObject(bool value) { return std::move(BaseHolder(value)); }
+StoredObject createStoredObject(bool value) { return std::move(StoredObject(value)); }
 
-StoredObject createStoredObject(lua_Number value) { return std::move(BaseHolder(value)); }
+StoredObject createStoredObject(lua_Number value) { return std::move(StoredObject(value)); }
 
-StoredObject createStoredObject(lua_Integer value) { return std::move(BaseHolder((lua_Number)value)); }
+StoredObject createStoredObject(lua_Integer value) { return std::move(StoredObject((lua_Number)value)); }
 
 StoredObject createStoredObject(const std::string& value) {
-    return std::move(BaseHolder(value));
+    return std::move(StoredObject(value));
 }
 
 StoredObject createStoredObject(const char* value) {
-    return std::move(BaseHolder(std::string(value)));
+    return std::move(StoredObject(std::string(value)));
 }
 
 StoredObject createStoredObject(const sol::object& object) { return fromSolObject(object); }
@@ -305,7 +354,7 @@ sol::optional<std::string> storedObjectToString(const StoredObject& sobj) {
 }
 */
 
-sol::optional<LUA_INDEX_TYPE> BaseHolder::toIndexType(const BaseHolder& holder) {
+sol::optional<LUA_INDEX_TYPE> StoredObject::toIndexType(const StoredObject& holder) {
     if (holder.type_ == StoredType::Number)
         return holder.number_;
     else

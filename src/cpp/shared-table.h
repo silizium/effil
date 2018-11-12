@@ -9,7 +9,7 @@
 
 #include <sol.hpp>
 
-#include <map>
+#include <unordered_map>
 #include <memory>
 
 namespace effil {
@@ -17,7 +17,8 @@ namespace effil {
 
 class SharedTableData : public GCData {
 public:
-    using DataEntries = std::map<StoredObject, StoredObject>;
+    using DataEntries = std::unordered_map<StoredObject,
+                StoredObject, StoredObjectHash>;
 public:
     SpinMutex lock;
     DataEntries entries;
