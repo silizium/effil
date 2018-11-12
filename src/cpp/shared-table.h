@@ -32,6 +32,8 @@ private:
 public:
     static void exportAPI(sol::state_view& lua);
 
+    void reserve(size_t size);
+    void unsafe_set(StoredObject&& key, StoredObject&& value);
     void set(StoredObject&&, StoredObject&&);
     void rawSet(const sol::stack_object& luaKey, const sol::stack_object& luaValue);
     sol::object get(const StoredObject& key, sol::this_state state) const;

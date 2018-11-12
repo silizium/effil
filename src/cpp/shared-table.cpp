@@ -24,6 +24,9 @@ bool isAnyTable(const SolObject& obj) {
 
 } // namespace
 
+void SharedTable::reserve(size_t size) {
+    ctx_->entries.reserve(size);
+}
 void SharedTable::exportAPI(sol::state_view& lua) {
     sol::usertype<SharedTable> type("new", sol::no_constructor,
         "__pairs",  &SharedTable::luaPairs,
@@ -49,6 +52,16 @@ void SharedTable::exportAPI(sol::state_view& lua) {
     sol::stack::pop<sol::object>(lua);
 }
 
+void SharedTable::unsafe_set(StoredObject&& key, StoredObject&& value) {
+    ctx_->addReference(key.gcHandle());
+    ctx_->addReference(value.gcHandle());
+
+    key.releaseStrongReference();
+    value.releaseStrongReference();
+
+    ctx_->entries.emplace(std::move(key), std::move(value));
+}
+
 void SharedTable::set(StoredObject&& key, StoredObject&& value) {
     UniqueLock g(ctx_->lock);
 
@@ -64,7 +77,7 @@ void SharedTable::set(StoredObject&& key, StoredObject&& value) {
         ctx_->entries.emplace_hint(hint, std::move(key), std::move(value));
     }
     else {
-        ctx_->entries.emplace(std::move(key), std::move(value));
+        ctx_->entries.emplace_hint(iter, std::move(key), std::move(value));
     }
 }
 

@@ -227,31 +227,32 @@ namespace {
 // This class is used as a storage for visited sol::tables
 // TODO: try to use map or unordered map instead of linear search in vector
 // TODO: Trick is - sol::object has only operator==:/
-typedef std::unordered_map<int, GCHandle> SolTableToShared;
+typedef std::unordered_map<int, SharedTable> SolTableToShared;
 
-void dumpTable(SharedTable* target, const sol::table& luaTable, SolTableToShared& visited);
+void dumpTable(SharedTable& target, const sol::table& luaTable, SolTableToShared& visited);
 
 StoredObject makeStoredObject(const sol::object& luaObject, SolTableToShared& visited) {
     if (luaObject.get_type() == sol::type::table) {
         const sol::table luaTable = luaObject;
         auto st = visited.find(luaTable.registry_index());;
-        if (st == std::end(visited)) {
+        if (st == visited.end()) {
             SharedTable table = GC::instance().create<SharedTable>();
-            visited.emplace(luaTable.registry_index(), table.handle());
-            dumpTable(&table, luaTable, visited);
+            visited.emplace(luaTable.registry_index(), table);
+            dumpTable(table, luaTable, visited);
             return std::move(StoredObject(table));
         } else {
-            const auto tbl = GC::instance().get<SharedTable>(st->second);
-            return std::move(StoredObject(tbl));
+            //const auto tbl = GC::instance().get<SharedTable>(st->second);
+            return std::move(StoredObject(st->second));
         }
     } else {
         return createStoredObject(luaObject);
     }
 }
 
-void dumpTable(SharedTable* target, const sol::table& luaTable, SolTableToShared& visited) {
+void dumpTable(SharedTable& target, const sol::table& luaTable, SolTableToShared& visited) {
+    target.reserve(luaTable.size());
     for (const auto& row : luaTable) {
-        target->set(makeStoredObject(row.first, visited), makeStoredObject(row.second, visited));
+        target.unsafe_set(makeStoredObject(row.first, visited), makeStoredObject(row.second, visited));
     }
 }
 
@@ -300,12 +301,12 @@ StoredObject fromSolObject(const SolObject& luaObject) {
             // Tables pool is used to store tables.
             // Right now not defiantly clear how ownership between states works.
             SharedTable table = GC::instance().create<SharedTable>();
-            SolTableToShared visited{{luaTable.registry_index(), table.handle()}};
+            SolTableToShared visited{{luaTable.registry_index(), table}};
 
             // Let's dump table and all subtables
             // SolTableToShared is used to prevent from infinity recursion
             // in recursive tables
-            dumpTable(&table, luaTable, visited);
+            dumpTable(table, luaTable, visited);
             return std::move(StoredObject(table));
         }
         default:
@@ -315,44 +316,23 @@ StoredObject fromSolObject(const SolObject& luaObject) {
 
 } // namespace
 
-StoredObject createStoredObject(bool value) { return std::move(StoredObject(value)); }
+StoredObject createStoredObject(bool value) { return StoredObject(value); }
 
-StoredObject createStoredObject(lua_Number value) { return std::move(StoredObject(value)); }
+StoredObject createStoredObject(lua_Number value) { return StoredObject(value); }
 
-StoredObject createStoredObject(lua_Integer value) { return std::move(StoredObject((lua_Number)value)); }
+StoredObject createStoredObject(lua_Integer value) { return StoredObject((lua_Number)value); }
 
 StoredObject createStoredObject(const std::string& value) {
-    return std::move(StoredObject(value));
+    return StoredObject(value);
 }
 
 StoredObject createStoredObject(const char* value) {
-    return std::move(StoredObject(std::string(value)));
+    return StoredObject(std::string(value));
 }
 
 StoredObject createStoredObject(const sol::object& object) { return fromSolObject(object); }
 
 StoredObject createStoredObject(const sol::stack_object& object) { return fromSolObject(object); }
-
-/*
-template <typename DataType>
-sol::optional<DataType> getPrimitiveHolderData(const StoredObject& sobj) {
-    auto ptr = dynamic_cast<PrimitiveHolder<DataType>*>(sobj.get());
-    if (ptr)
-        return ptr->getData();
-    return sol::optional<DataType>();
-}
-
-sol::optional<bool> storedObjectToBool(const StoredObject& sobj) {
-    return getPrimitiveHolderData<bool>(sobj);
-}
-
-sol::optional<double> storedObjectToDouble(const StoredObject& sobj) { return getPrimitiveHolderData<double>(sobj); }
-
-
-sol::optional<std::string> storedObjectToString(const StoredObject& sobj) {
-    return getPrimitiveHolderData<std::string>(sobj);
-}
-*/
 
 sol::optional<LUA_INDEX_TYPE> StoredObject::toIndexType(const StoredObject& holder) {
     if (holder.type_ == StoredType::Number)
