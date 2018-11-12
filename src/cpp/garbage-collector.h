@@ -40,6 +40,15 @@ public:
         return *result;
     }
 
+    StrongRef getRef(GCHandle handle) {
+        std::lock_guard<std::mutex> g(lock_);
+
+        auto it = objects_.find(handle);
+        assert(it != objects_.end());
+
+        return it->second->ref();
+    }
+
 private:
     mutable std::mutex lock_;
     bool enabled_;

@@ -89,6 +89,7 @@ void luaHook(lua_State*, lua_Debug*) {
 ThreadHandle::ThreadHandle()
         : status_(Status::Running)
         , command_(Command::Run)
+        , result_(std::make_shared<std::vector<effil::StoredObject>>())
         , lua_(std::make_unique<sol::state>(luaErrorHandlerPtr)) {
     luaL_openlibs(*lua_);
 }
@@ -123,32 +124,32 @@ void Thread::runThread(Thread thread,
             ScopeGuard reportComplete([thread, &arguments](){
                 // Let's destroy accociated state
                 // to release all resources as soon as possible
-                arguments.clear();
+                if (arguments)
+                    arguments->clear();
                 thread.ctx_->destroyLua();
             });
             sol::function userFuncObj = function.loadFunction(thread.ctx_->lua());
-            sol::function_result results = userFuncObj(std::move(arguments));
+            sol::function_result results = userFuncObj(arguments);
             (void)results; // just leave all returns on the stack
             sol::variadic_args args(thread.ctx_->lua(), -lua_gettop(thread.ctx_->lua()));
             for (const auto& iter : args) {
                 StoredObject store = createStoredObject(iter.get<sol::object>());
-                if (store->gcHandle() != nullptr)
+                if (store.gcHandle() != nullptr)
                 {
-                    thread.ctx_->addReference(store->gcHandle());
-                    store->releaseStrongReference();
+                    thread.ctx_->addReference(store.gcHandle());
+                    store.releaseStrongReference();
                 }
-                thread.ctx_->result().emplace_back(std::move(store));
+                thread.ctx_->result()->emplace_back(std::move(store));
             }
         }
         thread.ctx_->changeStatus(Status::Completed);
     } catch (const LuaHookStopException&) {
         thread.ctx_->changeStatus(Status::Canceled);
-    } catch (const sol::error& err) {
+    } catch (const std::exception& err) {
         DEBUG << "Failed with msg: " << err.what() << std::endl;
-        auto& returns = thread.ctx_->result();
-        returns.insert(returns.begin(),
-                { createStoredObject("failed"),
-                  createStoredObject(err.what()) });
+        auto returns = thread.ctx_->result();
+        returns->emplace_back(std::move(createStoredObject("failed")));
+        returns->emplace_back(std::move(createStoredObject(err.what())));
         thread.ctx_->changeStatus(Status::Failed);
     }
 }
@@ -192,25 +193,31 @@ Thread::Thread(const std::string& path,
 
     ctx_->lua()["package"]["path"] = path;
     ctx_->lua()["package"]["cpath"] = cpath;
-    ctx_->lua().script("require 'effil'");
+
+    //Thread::exportAPI(lua);
+    //SharedTable::exportAPI(lua);
+    //Channel::exportAPI(lua);
+
+    luaopen_effil(ctx_->lua());
+    sol::stack::pop_n(ctx_->lua(), 1);
 
     if (step != 0)
         lua_sethook(ctx_->lua(), luaHook, LUA_MASKCOUNT, step);
 
-    effil::StoredArray arguments;
+    effil::StoredArray arguments = std::make_shared<std::vector<effil::StoredObject>>();
     try {
         for (const auto& arg : variadicArgs) {
-            const auto& storedObj = createStoredObject(arg.get<sol::object>());
-            ctx_->addReference(storedObj->gcHandle());
-            storedObj->releaseStrongReference();
-            arguments.emplace_back(storedObj);
+            auto storedObj = createStoredObject(arg.get<sol::object>());
+            ctx_->addReference(storedObj.gcHandle());
+            storedObj.releaseStrongReference();
+            arguments->emplace_back(std::move(storedObj));
         }
     } RETHROW_WITH_PREFIX("effil.thread");
 
     std::thread thr(&Thread::runThread,
                     *this,
                     functionObj.value(),
-                    std::move(arguments));
+                    arguments);
     thr.detach();
 }
 
@@ -231,11 +238,13 @@ void Thread::exportAPI(sol::state_view& lua) {
 StoredArray Thread::status(const sol::this_state& lua) {
     const auto stat = ctx_->status();
     if (stat == Status::Failed) {
-        assert(!ctx_->result().empty());
+        assert(!ctx_->result()->empty());
         return ctx_->result();
     } else {
         const sol::object luaStatus = sol::make_object(lua, statusToString(stat));
-        return StoredArray({createStoredObject(luaStatus)});
+        StoredArray arr = std::make_shared<std::vector<effil::StoredObject>>();
+        arr->emplace_back(std::move(createStoredObject(luaStatus)));
+        return arr;
     }
 }
 

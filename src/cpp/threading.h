@@ -73,7 +73,7 @@ public:
 
     Status status() { return status_; }
 
-    StoredArray& result() { return result_; }
+    StoredArray result() { return result_; }
 
 private:
     Status status_;

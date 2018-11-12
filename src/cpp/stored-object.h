@@ -9,34 +9,66 @@ namespace effil {
 
 struct EffilApiMarker{};
 
+class SharedTable;
+class Function;
+class Channel;
+class Thread;
+
 // Represents an interface for lua type stored at C++ code
 class BaseHolder {
 public:
-    BaseHolder() = default;
-    virtual ~BaseHolder() = default;
+    BaseHolder(BaseHolder&& other);
 
-    bool compare(const BaseHolder* other) const {
-        if (typeid(*this) == typeid(*other))
-            return rawCompare(other);
-        return typeid(*this).before(typeid(*other));
-    }
+    explicit BaseHolder(const std::string& str);
+    explicit BaseHolder(lua_Number num);
+    explicit BaseHolder(bool b);
 
-    virtual bool rawCompare(const BaseHolder* other) const = 0;
-    virtual const std::type_info& type() { return typeid(*this); }
-    virtual sol::object unpack(sol::this_state state) const = 0;
-    virtual GCHandle gcHandle() const { return GCNull; }
-    virtual void releaseStrongReference() { }
-    virtual void holdStrongReference() { }
+    BaseHolder(const SharedTable& obj);
+    BaseHolder(const Function& obj);
+    BaseHolder(const Channel& obj);
+    BaseHolder(const Thread& obj);
+    BaseHolder(sol::lightuserdata_value ud);
+    BaseHolder(sol::nil_t);
+    BaseHolder(EffilApiMarker);
+    BaseHolder();
+    ~BaseHolder();
 
-private:
+    bool operator<(const BaseHolder& other) const;
+    const std::type_info& type();
+    sol::object unpack(sol::this_state state) const;
+    GCHandle gcHandle() const;
+    void releaseStrongReference();
+    void holdStrongReference();
+
+    static sol::optional<LUA_INDEX_TYPE> toIndexType(const BaseHolder&);
+
+protected:
+    union {
+        lua_Number  number_;
+        bool        bool_;
+        char*       string_;
+        GCHandle    handle_;
+        void*       lightUData_;
+    };
+    StrongRef strongRef_;
+
+    enum class StoredType {
+        Number,
+        Boolean,
+        String,
+        Nil,
+        ApiMarker,
+        LightUserData,
+        SharedTable,
+        SharedChannel,
+        SharedFunction,
+        SharedThread,
+    } type_;
+
     BaseHolder(const BaseHolder&) = delete;
 };
 
-typedef std::shared_ptr<BaseHolder> StoredObject;
-
-struct StoredObjectLess {
-    bool operator()(const StoredObject& lhs, const StoredObject& rhs) const { return lhs->compare(rhs.get()); }
-};
+typedef BaseHolder StoredObject;
 
 StoredObject createStoredObject(bool);
 StoredObject createStoredObject(lua_Number);
@@ -46,10 +78,9 @@ StoredObject createStoredObject(const char*);
 StoredObject createStoredObject(const sol::object&);
 StoredObject createStoredObject(const sol::stack_object&);
 
-
+/*
 sol::optional<bool> storedObjectToBool(const StoredObject&);
 sol::optional<double> storedObjectToDouble(const StoredObject&);
-sol::optional<LUA_INDEX_TYPE> storedObjectToIndexType(const StoredObject&);
 sol::optional<std::string> storedObjectToString(const StoredObject&);
-
+*/
 } // effil

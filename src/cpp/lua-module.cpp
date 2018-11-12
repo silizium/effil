@@ -14,7 +14,7 @@ sol::object createTable(sol::this_state lua, const sol::optional<sol::object>& t
     {
         REQUIRE(tbl->get_type() == sol::type::table) << "Unexpected type for effil.table, table expected got: "
                                                      << lua_typename(lua, (int)tbl->get_type());
-        return createStoredObject(*tbl)->unpack(lua);
+        return createStoredObject(*tbl).unpack(lua);
     }
     return sol::make_object(lua, GC::instance().create<SharedTable>());
 }

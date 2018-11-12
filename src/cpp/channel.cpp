@@ -33,13 +33,13 @@ bool Channel::push(const sol::variadic_args& args) {
     std::unique_lock<std::mutex> lock(ctx_->lock_);
     if (ctx_->capacity_ && ctx_->channel_.size() >= ctx_->capacity_)
         return false;
-    StoredArray array;
+    StoredArray array = std::make_shared<std::vector<effil::StoredObject>>();
     for (const auto& arg : args) {
         try {
             auto obj = createStoredObject(arg.get<sol::object>());
-            ctx_->addReference(obj->gcHandle());
-            obj->releaseStrongReference();
-            array.emplace_back(obj);
+            ctx_->addReference(obj.gcHandle());
+            obj.releaseStrongReference();
+            array->emplace_back(std::move(obj));
         }
         RETHROW_WITH_PREFIX("effil.channel:push");
     }
@@ -61,10 +61,10 @@ StoredArray Channel::pop(const sol::optional<int>& duration,
         }
     }
 
-    auto ret = ctx_->channel_.front();
-    for (const auto& obj: ret) {
-        obj->holdStrongReference();
-        ctx_->removeReference(obj->gcHandle());
+    auto ret = std::move(ctx_->channel_.front());
+    for (auto& obj: *ret) {
+        obj.holdStrongReference();
+        ctx_->removeReference(obj.gcHandle());
     }
 
     ctx_->channel_.pop();

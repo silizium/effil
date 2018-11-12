@@ -17,7 +17,7 @@ namespace effil {
 
 class SharedTableData : public GCData {
 public:
-    using DataEntries = std::map<StoredObject, StoredObject, StoredObjectLess>;
+    using DataEntries = std::map<StoredObject, StoredObject>;
 public:
     SpinMutex lock;
     DataEntries entries;
