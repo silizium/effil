@@ -31,7 +31,7 @@ Function::Function(const sol::function& luaObject) {
         if (gTable == sol::stack::get<sol::table>(state)) { // do not serialize _G
             sol::stack::pop<sol::object>(state);
             ctx_->envUpvaluePos = i;
-            ctx_->upvalues.emplace_back(std::move(StoredObject(sol::nil)));
+            ctx_->upvalues.emplace_back(StoredObject(sol::nil));
             continue;
         }
 #endif // LUA_VERSION_NUM > 501
