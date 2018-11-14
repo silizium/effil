@@ -319,10 +319,9 @@ StoredObject makeStoredObject(const sol::object& luaObject, SolTableToShared& vi
             SharedTable table = GC::instance().create<SharedTable>();
             visited.emplace(luaTable.registry_index(), table);
             dumpTable(table, luaTable, visited);
-            return std::move(StoredObject(table));
+            return StoredObject(table);
         } else {
-            //const auto tbl = GC::instance().get<SharedTable>(st->second);
-            return std::move(StoredObject(st->second));
+            return StoredObject(st->second);
         }
     } else {
         return createStoredObject(luaObject);
@@ -387,7 +386,7 @@ StoredObject fromSolObject(const SolObject& luaObject) {
             // SolTableToShared is used to prevent from infinity recursion
             // in recursive tables
             dumpTable(table, luaTable, visited);
-            return std::move(StoredObject(table));
+            return StoredObject(table);
         }
         default:
             throw Exception() << "unable to store object of " << luaTypename(luaObject) << " type";
