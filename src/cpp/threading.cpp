@@ -238,7 +238,7 @@ StoredArray Thread::status(const sol::this_state& lua) {
     const auto stat = ctx_->status();
     const sol::object luaStatus = sol::make_object(lua, statusToString(stat));
     StoredArray arr = std::make_shared<std::vector<effil::StoredObject>>();
-    arr->emplace_back(std::move(createStoredObject(luaStatus)));
+    arr->emplace_back(createStoredObject(luaStatus));
 
     if (stat == Status::Failed)
     {
