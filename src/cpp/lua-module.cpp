@@ -102,6 +102,7 @@ int luaopen_effil(lua_State* L) {
             "rawget",       SharedTable::luaRawGet,
             "setmetatable", SharedTable::luaSetMetatable,
             "getmetatable", SharedTable::luaGetMetatable,
+            "reserve",      SharedTable::luaReserve,
             "channel",      createChannel,
             "type",         getLuaTypename,
             "pairs",        SharedTable::globalLuaPairs,

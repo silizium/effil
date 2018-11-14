@@ -18,6 +18,9 @@ StoredObject::StoredObject(StoredObject&& other) {
         case StoredType::Number:
             number_ = other.number_;
             break;
+        case StoredType::Integer:
+            integer_ = other.integer_;
+            break;
         case StoredType::Boolean:
             bool_ = other.bool_;
             break;
@@ -42,6 +45,64 @@ StoredObject::StoredObject(StoredObject&& other) {
             break;
     }
 }
+
+/*
+StoredObject& StoredObject::operator=(const StoredObject& other) {
+    type_ = other.type_;
+    switch (type_) {
+        case StoredType::Number:
+            number_ = other.number_;
+            break;
+        case StoredType::Boolean:
+            bool_ = other.bool_;
+            break;
+        case StoredType::String:
+            string_ = (char*)malloc(strlen(other.string_));
+            strcpy(string_, other.string_);
+            break;
+        case StoredType::LightUserData:
+            lightUData_ = other.lightUData_;
+            break;
+        case StoredType::SharedTable:
+        case StoredType::SharedChannel:
+        case StoredType::SharedFunction:
+        case StoredType::SharedThread:
+            handle_ = other.handle_;
+            strongRef_ = other.strongRef_;
+            break;
+        default:
+            break;
+    }
+}
+
+StoredObject::StoredObject(const StoredObject& other) {
+    type_ = other.type_;
+    switch (type_) {
+        case StoredType::Number:
+            number_ = other.number_;
+            break;
+        case StoredType::Boolean:
+            bool_ = other.bool_;
+            break;
+        case StoredType::String:
+            string_ = (char*)malloc(strlen(other.string_));
+            strcpy(string_, other.string_);
+            break;
+        case StoredType::LightUserData:
+            lightUData_ = other.lightUData_;
+            break;
+        case StoredType::SharedTable:
+        case StoredType::SharedChannel:
+        case StoredType::SharedFunction:
+        case StoredType::SharedThread:
+            handle_ = other.handle_;
+            strongRef_ = other.strongRef_;
+            break;
+        default:
+            break;
+    }
+}
+*/
 
 StoredObject::StoredObject(const SharedTable& obj)
     : handle_(obj.handle()), type_(StoredType::SharedTable) {
@@ -68,7 +129,11 @@ StoredObject::StoredObject(const std::string& str) : type_(StoredType::String) {
     strcpy(string_, str.c_str());
 }
 
-StoredObject::StoredObject(lua_Number num) : number_(num), type_(StoredType::Number) {}
+StoredObject::StoredObject(lua_Number num)
+    : number_(num), type_(StoredType::Number) {}
+
+StoredObject::StoredObject(lua_Integer num)
+    : integer_(num), type_(StoredType::Integer) {}
 
 StoredObject::StoredObject(bool b) : bool_(b), type_(StoredType::Boolean) {}
 
@@ -115,6 +180,8 @@ bool StoredObject::operator==(const StoredObject& other) const {
         switch (type_) {
             case StoredType::Number:
                 return number_ == other.number_;
+            case StoredType::Integer:
+                return integer_ == other.integer_;
             case StoredType::Boolean:
                 return bool_ == other.bool_;
             case StoredType::String:
@@ -141,6 +208,8 @@ sol::object StoredObject::unpack(sol::this_state state) const {
     switch (type_) {
         case StoredType::Number:
             return sol::make_object(state, number_);
+        case StoredType::Integer:
+            return sol::make_object(state, integer_);
         case StoredType::Boolean:
             return sol::make_object(state, bool_);
         case StoredType::String:
@@ -193,7 +262,7 @@ void StoredObject::holdStrongReference() {
 }
 
 template<typename T>
-size_t bindHashes(size_t seed, const T& obj) {
+inline size_t bindHashes(size_t seed, const T& obj) {
     std::hash<T> hasher;
     return seed ^ (hasher(obj) + 0x9e3779b9 + (seed<<6) + (seed>>2));
 }
@@ -201,25 +270,36 @@ size_t bindHashes(size_t seed, const T& obj) {
 size_t StoredObjectHash::operator ()(const StoredObject& obj) const {
     const auto seed = std::hash<size_t>()((size_t)obj.type_);
 
+    typedef StoredObject::StoredType Type;
+
     switch (obj.type_) {
-        case StoredObject::StoredType::Number:
+        case Type::Number:
             return bindHashes(seed, obj.number_);
-        case StoredObject::StoredType::Boolean:
+        case Type::Integer:
+            return bindHashes(seed, obj.integer_);
+        case Type::Boolean:
             return bindHashes(seed, obj.bool_);
-        case StoredObject::StoredType::String:
+        case Type::String:
             return bindHashes<std::string>(seed, obj.string_);
-        case StoredObject::StoredType::LightUserData:
+        case Type::LightUserData:
             return bindHashes(seed, obj.lightUData_);
-        case StoredObject::StoredType::SharedTable:
-        case StoredObject::StoredType::SharedChannel:
-        case StoredObject::StoredType::SharedFunction:
-        case StoredObject::StoredType::SharedThread:
+        case Type::SharedTable:
+        case Type::SharedChannel:
+        case Type::SharedFunction:
+        case Type::SharedThread:
             return bindHashes(seed, obj.handle_);
         default:
+            assert(false);
             return 0;
     }
-    assert(false);
     return seed;
+}
+
+sol::optional<LUA_INDEX_TYPE> StoredObject::toIndexType() const {
+    if (type_ == StoredType::Number)
+        return number_;
+    else
+        return sol::nullopt;
 }
 
 namespace {
@@ -270,7 +350,7 @@ StoredObject fromSolObject(const SolObject& luaObject) {
             int isInterger = lua_isinteger(luaObject.lua_state(), -1);
             sol::stack::pop<sol::object>(luaObject.lua_state());
             if (isInterger)
-                return std::move(BaseHolder(luaObject.as<lua_Integer>()));
+                return StoredObject(luaObject.template as<lua_Integer>());
             else
 #endif // Lua5.3
                 return StoredObject(luaObject.template as<lua_Number>());
@@ -320,7 +400,7 @@ StoredObject createStoredObject(bool value) { return StoredObject(value); }
 
 StoredObject createStoredObject(lua_Number value) { return StoredObject(value); }
 
-StoredObject createStoredObject(lua_Integer value) { return StoredObject((lua_Number)value); }
+StoredObject createStoredObject(lua_Integer value) { return StoredObject(value); }
 
 StoredObject createStoredObject(const std::string& value) {
     return StoredObject(value);
@@ -333,12 +413,5 @@ StoredObject createStoredObject(const char* value) {
 StoredObject createStoredObject(const sol::object& object) { return fromSolObject(object); }
 
 StoredObject createStoredObject(const sol::stack_object& object) { return fromSolObject(object); }
-
-sol::optional<LUA_INDEX_TYPE> StoredObject::toIndexType(const StoredObject& holder) {
-    if (holder.type_ == StoredType::Number)
-        return holder.number_;
-    else
-        return sol::nullopt;
-}
 
 } // effil

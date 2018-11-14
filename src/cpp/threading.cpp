@@ -50,7 +50,7 @@ std::string statusToString(Status status) {
 int luaErrorHandler(lua_State* state) {
     luaL_traceback(state, state, nullptr, 1);
     const auto stacktrace = sol::stack::pop<std::string>(state);
-    thisThreadHandle->result().emplace_back(createStoredObject(stacktrace));
+    thisThreadHandle->result()->emplace_back(createStoredObject(stacktrace));
     throw Exception() << sol::stack::pop<std::string>(state);
 }
 
@@ -148,8 +148,7 @@ void Thread::runThread(Thread thread,
     } catch (const std::exception& err) {
         DEBUG << "Failed with msg: " << err.what() << std::endl;
         auto returns = thread.ctx_->result();
-        returns->emplace_back(std::move(createStoredObject("failed")));
-        returns->emplace_back(std::move(createStoredObject(err.what())));
+        returns->emplace_back(createStoredObject(err.what()));
         thread.ctx_->changeStatus(Status::Failed);
     }
 }
@@ -237,15 +236,22 @@ void Thread::exportAPI(sol::state_view& lua) {
 
 StoredArray Thread::status(const sol::this_state& lua) {
     const auto stat = ctx_->status();
-    if (stat == Status::Failed) {
-        assert(!ctx_->result()->empty());
-        return ctx_->result();
-    } else {
-        const sol::object luaStatus = sol::make_object(lua, statusToString(stat));
-        StoredArray arr = std::make_shared<std::vector<effil::StoredObject>>();
-        arr->emplace_back(std::move(createStoredObject(luaStatus)));
-        return arr;
+    const sol::object luaStatus = sol::make_object(lua, statusToString(stat));
+    StoredArray arr = std::make_shared<std::vector<effil::StoredObject>>();
+    arr->emplace_back(std::move(createStoredObject(luaStatus)));
+
+    if (stat == Status::Failed)
+    {
+        const auto res = ctx_->result();
+        if (res && !res->empty())
+        {
+            for (auto iter = res->rbegin(); iter != res->rend(); ++iter)
+            {
+                arr->emplace_back(std::move(*iter));
+            }
+        }
     }
+    return arr;
 }
 
 sol::optional<std::chrono::milliseconds> toOptionalTime(const sol::optional<int>& duration,

@@ -69,6 +69,7 @@ public:
     static size_t luaSize(const sol::stack_object& tbl);
     static PairsIterator globalLuaPairs(sol::this_state state, const sol::stack_object& obj);
     static PairsIterator globalLuaIPairs(sol::this_state state, const sol::stack_object& obj);
+    static void luaReserve(const sol::stack_object& tbl, const sol::stack_object& size);
 
 private:
     PairsIterator getNext(const sol::object& key, sol::this_state lua);

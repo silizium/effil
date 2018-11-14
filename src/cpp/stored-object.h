@@ -17,21 +17,24 @@ class Thread;
 // Represents an interface for lua type stored at C++ code
 class StoredObject {
 public:
+    //StoredObject(const StoredObject&);
     StoredObject(StoredObject&& other);
+    //StoredObject& operator=(const StoredObject&);
+
+    StoredObject();
+    ~StoredObject();
 
     explicit StoredObject(const std::string& str);
     explicit StoredObject(lua_Number num);
+    explicit StoredObject(lua_Integer num);
     explicit StoredObject(bool b);
-
-    StoredObject(const SharedTable& obj);
-    StoredObject(const Function& obj);
-    StoredObject(const Channel& obj);
-    StoredObject(const Thread& obj);
-    StoredObject(sol::lightuserdata_value ud);
-    StoredObject(sol::nil_t);
-    StoredObject(EffilApiMarker);
-    StoredObject();
-    ~StoredObject();
+    explicit StoredObject(const SharedTable& obj);
+    explicit StoredObject(const Function& obj);
+    explicit StoredObject(const Channel& obj);
+    explicit StoredObject(const Thread& obj);
+    explicit StoredObject(sol::lightuserdata_value ud);
+    explicit StoredObject(sol::nil_t);
+    explicit StoredObject(EffilApiMarker);
 
     //bool operator<(const StoredObject& other) const;
     bool operator==(const StoredObject& other) const;
@@ -41,11 +44,12 @@ public:
     void releaseStrongReference();
     void holdStrongReference();
 
-    static sol::optional<LUA_INDEX_TYPE> toIndexType(const StoredObject&);
+    sol::optional<LUA_INDEX_TYPE> toIndexType() const;
 
 protected:
     union {
         lua_Number  number_;
+        lua_Integer integer_;
         bool        bool_;
         char*       string_;
         GCHandle    handle_;
@@ -55,6 +59,7 @@ protected:
 
     enum class StoredType {
         Number,
+        Integer,
         Boolean,
         String,
         Nil,
@@ -70,6 +75,14 @@ protected:
     friend struct StoredObjectHash;
 };
 
+/*
+inline void swap(StoredObject& left, StoredObject& right)
+{
+    StoredObject tmp = std::move(right);
+    right = std::move(left);
+    left  = std::move(right);
+}
+*/
 struct StoredObjectHash {
     size_t operator ()(const StoredObject& obj) const;
 };
@@ -82,9 +95,4 @@ StoredObject createStoredObject(const char*);
 StoredObject createStoredObject(const sol::object&);
 StoredObject createStoredObject(const sol::stack_object&);
 
-/*
-sol::optional<bool> storedObjectToBool(const StoredObject&);
-sol::optional<double> storedObjectToDouble(const StoredObject&);
-sol::optional<std::string> storedObjectToString(const StoredObject&);
-*/
 } // effil
